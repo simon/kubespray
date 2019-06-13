@@ -1,0 +1,7 @@
+---
+macvlan_interface: eth0
+output_interface: eth1
+baremetal_nodename: "{{ kube_override_hostname | default(inventory_hostname) }}"
+
+
+# kubectl get nodes node1 -o jsonpath='{.spec.podCIDR}'

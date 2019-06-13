@@ -1,0 +1,41 @@
+---
+
+- name: Macvlan | Set cni directory permissions
+  file:
+    path: /opt/cni/bin
+    state: directory
+    owner: kube
+    recurse: true
+    mode: 0755
+
+- name: Macvlan | Copy cni plugins
+  unarchive:
+    src: "{{ local_release_dir }}/cni-plugins-{{ image_arch }}-{{ cni_version }}.tgz"
+    dest: "/opt/cni/bin"
+    mode: 0755
+    remote_src: yes
+
+- name: Macvlan | Retreive Pod Cidr
+  command: "{{ bin_dir }}/kubectl get nodes {{ baremetal_nodename }} -o jsonpath='{.spec.podCIDR}'"
+  register: node_pod_cidr_cmd
+
+- name: Macvlan | set node_pod_cidr
+  set_fact:
+    node_pod_cidr={{ node_pod_cidr_cmd.stdout}}
+
+- name: Macvlan | Install network gateway interface
+  template:
+    src: debian-network-macvlan.cfg.j2
+    dest: /etc/network/interfaces.d/60-mac0.cfg
+  notify: Macvlan | restart network
+
+- name: Macvlan | Install cni definition for Macvlan
+  template:
+    src: 10-macvlan.conf.j2
+    dest: /etc/cni/net.d/10-macvlan.conf
+
+- name: Macvlan | Install loopback definition for Macvlan
+  template:
+    src: 99-loopback.conf.j2
+    dest: /etc/cni/net.d/99-loopback.conf
+
