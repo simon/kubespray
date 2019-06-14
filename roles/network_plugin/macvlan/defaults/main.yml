@@ -1,7 +1,7 @@
 ---
 macvlan_interface: eth0
 output_interface: eth1
-baremetal_nodename: "{{ kube_override_hostname | default(inventory_hostname) }}"
 
+# sysctl_file_path to add sysctl conf to
+sysctl_file_path: "/etc/sysctl.d/99-sysctl.conf"
 
-# kubectl get nodes node1 -o jsonpath='{.spec.podCIDR}'

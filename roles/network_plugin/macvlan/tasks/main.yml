@@ -16,7 +16,7 @@
     remote_src: yes
 
 - name: Macvlan | Retreive Pod Cidr
-  command: "{{ bin_dir }}/kubectl get nodes {{ baremetal_nodename }} -o jsonpath='{.spec.podCIDR}'"
+  command: "{{ bin_dir }}/kubectl get nodes {{ kube_override_hostname | default(inventory_hostname) }} -o jsonpath='{.spec.podCIDR}'"
   register: node_pod_cidr_cmd
 
 - name: Macvlan | set node_pod_cidr
@@ -30,6 +30,17 @@
   notify: Macvlan | restart network
   when: ansible_os_family in ["Debian"]
 
+- name: Macvlan | Install macvlan script on centos
+  copy:
+    src: "{{ item }}"
+    dest: /etc/sysconfig/network-scripts/
+    owner: root
+    group: root
+    mode: "0755"
+  with_fileglob:
+    - files/*
+  when: ansible_os_family in ["CentOS","RedHat"]
+
 - name: Macvlan | Install network gateway interface on centos
   template:
     src: "{{ item.src }}.j2"
@@ -38,7 +49,19 @@
     - {src: centos-network-macvlan.cfg, dst: ifcfg-mac0 }
     - {src: centos-routes-macvlan.cfg, dst: route-mac0 }
   notify: Macvlan | restart network
-  when: ansible_os_family in ["Redhat"]
+  when: ansible_os_family in ["CentOS","RedHat"]
+
+- name: Macvlan | Install network gateway interface on coreos
+  template:
+    src: "{{ item.src }}.j2"
+    dest: "/etc/systemd/network/{{ item.dst }}"
+  with_items:
+    - {src: coreos-device-macvlan.cfg.j2, dst: macvlan.netdev }
+    - {src: coreos-interface-macvlan.cfg.j2, dst: output.network }
+    - {src: coreos-network-macvlan.cfg.j2, dst: macvlan.network }
+  notify: Macvlan | restart network
+  when: ansible_os_family in ["CoreOS"]
+
 
 - name: Macvlan | Install cni definition for Macvlan
   template:
@@ -49,4 +72,14 @@
   template:
     src: 99-loopback.conf.j2
     dest: /etc/cni/net.d/99-loopback.conf
+
+- name: Enable net.ipv4.conf.all.arp_notify in sysctl
+  sysctl:
+    name: net.ipv4.conf.all.arp_notify
+    value: 1
+    sysctl_set: yes
+    sysctl_file: "{{ sysctl_file_path }}"
+    state: present
+    reload: yes
+
 
