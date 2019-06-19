@@ -10,7 +10,7 @@
 
 - name: Macvlan | Copy cni plugins
   unarchive:
-    src: "{{ local_release_dir }}/cni-plugins-{{ image_arch }}-{{ cni_version }}.tgz"
+    src: "{{ local_release_dir }}/cni-plugins-linux-{{ image_arch }}-{{ cni_version }}.tgz"
     dest: "/opt/cni/bin"
     mode: 0755
     remote_src: yes
@@ -22,6 +22,14 @@
 - name: Macvlan | set node_pod_cidr
   set_fact:
     node_pod_cidr={{ node_pod_cidr_cmd.stdout}}
+
+- name: Macvlan | Retreive default gateway network interface
+  raw: ip -4 route list 0/0 2> /dev/null | sed 's/.*dev \([[:alnum:]]*\).*/\1/'
+  register: node_default_gateway_interface_cmd
+
+- name: Macvlan | set node_default_gateway_interface
+  set_fact:
+    node_default_gateway_interface={{ node_default_gateway_interface_cmd.stdout| trim}}
 
 - name: Macvlan | Install network gateway interface on debian
   template:
@@ -41,6 +49,15 @@
     - files/*
   when: ansible_os_family in ["CentOS","RedHat"]
 
+- name: Macvlan | Install post-up script on centos
+  copy:
+    src: "files/ifup-local"
+    dest: /sbin/
+    owner: root
+    group: root
+    mode: "0755"
+  when: ansible_os_family in ["CentOS","RedHat"] and enable_nat_default_gateway
+
 - name: Macvlan | Install network gateway interface on centos
   template:
     src: "{{ item.src }}.j2"
@@ -48,20 +65,33 @@
   with_items:
     - {src: centos-network-macvlan.cfg, dst: ifcfg-mac0 }
     - {src: centos-routes-macvlan.cfg, dst: route-mac0 }
+    - {src: centos-postup-macvlan.cfg, dst: post-up-mac0 }
   notify: Macvlan | restart network
   when: ansible_os_family in ["CentOS","RedHat"]
+
+- name: Macvlan | Install service nat via gateway on coreos
+  template:
+    src: coreos-service-nat_ouside.j2
+    dest: /etc/systemd/system/enable_nat_ouside.service
+  when: ansible_os_family in ["CoreOS", "Container Linux by CoreOS"] and enable_nat_default_gateway
+
+- name: Macvlan | Enable service nat via gateway on coreos
+  command: "{{ item }}"
+  with_items:
+  - systemctl daemon-reload
+  - systemctl enable enable_nat_ouside.service
+  when: ansible_os_family in ["CoreOS", "Container Linux by CoreOS"] and enable_nat_default_gateway
 
 - name: Macvlan | Install network gateway interface on coreos
   template:
     src: "{{ item.src }}.j2"
     dest: "/etc/systemd/network/{{ item.dst }}"
   with_items:
-    - {src: coreos-device-macvlan.cfg.j2, dst: macvlan.netdev }
-    - {src: coreos-interface-macvlan.cfg.j2, dst: output.network }
-    - {src: coreos-network-macvlan.cfg.j2, dst: macvlan.network }
+    - {src: coreos-device-macvlan.cfg, dst: macvlan.netdev }
+    - {src: coreos-interface-macvlan.cfg, dst: output.network }
+    - {src: coreos-network-macvlan.cfg, dst: macvlan.network }
   notify: Macvlan | restart network
-  when: ansible_os_family in ["CoreOS"]
-
+  when: ansible_os_family in ["CoreOS", "Container Linux by CoreOS"]
 
 - name: Macvlan | Install cni definition for Macvlan
   template:
